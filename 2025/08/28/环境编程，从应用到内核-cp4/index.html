@@ -80,7 +80,7 @@
         <span class="post-meta-item-icon">
             <i class="ri-quill-pen-line"></i>
             <span class="post-meta-item-text"> Word count:</span>
-            <span class="post-count">1.7k</span>
+            <span class="post-count">2.9k</span>
         </span>
     </span>
 
@@ -89,7 +89,7 @@
         <span class="post-meta-item-icon">
             <i class="ri-book-open-line"></i>
             <span class="post-meta-item-text"> Reading time≈</span>
-            <span class="post-count">7 min</span>
+            <span class="post-count">12 min</span>
         </span>
     </span>
 </div>
@@ -143,7 +143,68 @@
 <h2 id="fork父子进程文件的关系"><a href="#fork父子进程文件的关系" class="headerlink" title="fork父子进程文件的关系"></a>fork父子进程文件的关系</h2><p>执行fork时，内核会复制父进程的所有文件描述符。同时父子进程会共享文件描述符的一些信息，这是非常危险的。</p>
 <p>Linux给文件描述提供了一个标志-FD_CLOSEXEC, 同时，open函数也有一个类似的标记位O_CLOSEEXC。他们的含义是在调用exec时会自动关闭文件。比如fork子进程后执行exec的场景，子进程中对应的设置了CLOSEXEC的文件就会关闭掉。</p>
 <p>一个例子：<br>root权限启动server，打开了一些root权限级别的文件和端口。降到普通用户，fork出了子进程，这时子进程是完全可以操作这些文件描述符的，这就带来了严重的安全隐患，所以上面的标记位(建议在open时就带上标记位)就派上用场了。</p>
- 
+<h2 id="vfork"><a href="#vfork" class="headerlink" title="vfork"></a>vfork</h2><p>早期的fork没有实现cow，所以引入了vfork，它创建子进程后会共享父进程的地址空间，当我们调用exec的时候才会申请自己的地址空间。注意vfork调用的子进程如果退出，要使用_exit</p>
+<h2 id="daemon守护进程的创建"><a href="#daemon守护进程的创建" class="headerlink" title="daemon守护进程的创建"></a>daemon守护进程的创建</h2><h2 id="进程的终止"><a href="#进程的终止" class="headerlink" title="进程的终止"></a>进程的终止</h2><h3 id="正常退出"><a href="#正常退出" class="headerlink" title="正常退出"></a>正常退出</h3><ul>
+<li>main函数return</li>
+<li>exit</li>
+<li>_exit</li>
+</ul>
+<h3 id="异常退出"><a href="#异常退出" class="headerlink" title="异常退出"></a>异常退出</h3><ul>
+<li>abort</li>
+<li>接收到信号，由信号终止</li>
+</ul>
+<hr>
+<p>_exit就是调用exit_grout系统调用，执行内核清理工作。</p>
+<p>那exit函数做了哪些事情？</p>
+<ol>
+<li>执行用户通过atexit或者on_exit定义的清理函数</li>
+<li>关闭所有打开的流，flush所有缓冲数据，通过tmpfile创建的临时文件会被删除</li>
+<li>调用_exit</li>
+</ol>
+<p>关于第二点，冲刷缓冲区里的所有数据。做一些讨论，缓冲有三种方式：</p>
+<ol>
+<li>无缓存，每次调用stdio库函数都会直接调用read&#x2F;write系统调用。</li>
+<li>行缓存，收到换行符之前，一律缓冲数据，除非缓冲区满了。</li>
+<li>全缓存，缓冲区满之前不会调用read&#x2F;write进行读写操作。</li>
+</ol>
+<p>标准输出流采用的是行缓存，我们可以通过一个程序来看一下exit和_exit在这一点的区别</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;unistd.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">foo</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;foo says bye.\n&quot;</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">void</span> <span class="title function_">bar</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="built_in">fprintf</span>(<span class="built_in">stderr</span>, <span class="string">&quot;bar says bye.\n&quot;</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> **argv)</span> &#123;</span><br><span class="line">    atexit(foo);</span><br><span class="line">    atexit(bar);</span><br><span class="line">    <span class="built_in">fprintf</span>(<span class="built_in">stdout</span>, <span class="string">&quot;Oops, ... forgot a newline!&quot;</span>);</span><br><span class="line">    sleep(<span class="number">2</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (argc &gt; <span class="number">1</span> &amp;&amp; <span class="built_in">strcmp</span>(argv[<span class="number">1</span>], <span class="string">&quot;exit&quot;</span>) == <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="built_in">exit</span>(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span>(argc &gt; <span class="number">1</span> &amp;&amp; <span class="built_in">strcmp</span>(argv[<span class="number">1</span>], <span class="string">&quot;_exit&quot;</span>) == <span class="number">0</span>) &#123;</span><br><span class="line">        _exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>运行结果：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">elvis@DQ:~/self_driven/Linux/cp4$ ./test exit</span><br><span class="line">bar says bye.</span><br><span class="line">foo says bye.</span><br><span class="line">Oops, ... forgot a newline!elvis@DQ:~/self_driven/Linux/cp4$ ./test</span><br><span class="line">bar says bye.</span><br><span class="line">foo says bye.</span><br><span class="line">Oops, ... forgot a newline!elvis@DQ:~/self_driven/Linux/cp4$ ./test _exit</span><br><span class="line">elvis@DQ:~/self_driven/Linux/cp4$ </span><br></pre></td></tr></table></figure>
+
+<p>首先，stdout是行缓冲，只有遇到\n时或者缓冲区满时才会输出。</p>
+<p>如果我们用exit来退出，发现使用atexit注册的函数按照先入后出的的顺序执行了，然后刷新缓冲区，”Oops…”输出了。</p>
+<p>如果我们用_exit来退出，不会执行没有上述步骤，所以什么也没输出。</p>
+<p>return退出等价于exit退出， 因为调用main函数的程序会将返回值单程exit的入参， return n; &#x3D;&#x3D;&gt; exit(n)</p>
+<h2 id="等待子进程"><a href="#等待子进程" class="headerlink" title="等待子进程"></a>等待子进程</h2><p>进程结束之后，并不会将所有的资源都立即释放，它仍会保留一些资源：进程控制块，内核栈等</p>
+<p>这些资源不释放是为了消亡前再提供一些信息，比如进程为什么退出，发生了多少次缺页中断，进程消耗了多少cpu时间等等。</p>
+<p>如果进程退出后立马就释放所有资源，那这些信息也就无从得知了。所以进程退出后变成<strong>僵尸进程</strong>的这段时间里，父进程可以通过</p>
+<p>wait&#x2F;waitpid来获取这些信息，一旦信息传递出去，进程就可以彻底消失了。</p>
+<p>制造一个僵尸进程很简单：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;sys/types.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span></span><br><span class="line">&#123;</span><br><span class="line"></span><br><span class="line">    <span class="type">pid_t</span> pid;</span><br><span class="line">    pid = fork();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span>(pid &lt; <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="built_in">printf</span>(<span class="string">&quot;error occurred!\n&quot;</span>);</span><br><span class="line">    &#125;<span class="keyword">else</span> <span class="keyword">if</span>(pid == <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="built_in">exit</span>(<span class="number">0</span>);</span><br><span class="line">    &#125;<span class="keyword">else</span>&#123;</span><br><span class="line">        sleep(<span class="number">200</span>);</span><br><span class="line">        wait(<span class="literal">NULL</span>);   <span class="comment">// 获取僵尸进程(退出的子进程的退出信息)</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>在sleep的时间里，我们可以查看当前进程情况</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">2058125 pts/9    S+     0:00 ./test</span><br><span class="line">2058126 pts/9    Z+     0:00 [test] &lt;defunct&gt;</span><br></pre></td></tr></table></figure>
+<p>这个205816就是退出的子进程，Z代表Zombie，进程处于僵尸状态。而且这个僵尸进程使用kill是杀不死的。要清理僵尸进程有两种方法：</p>
+<ul>
+<li>父进程调用wait函数，为子进程收尸</li>
+<li>父进程退出，init进程会为子进程收尸</li>
+</ul>
+<h2 id="等待子进程退出之-wait"><a href="#等待子进程退出之-wait" class="headerlink" title="等待子进程退出之 wait"></a>等待子进程退出之 wait</h2><p>父进程调用wait， 子进程调用exit，是相互独立的，所以就存在两种case。</p>
+<ul>
+<li>子进程先退出，父进程后调用wait</li>
+<li>父进程调用wait，子进程后退出</li>
+</ul>
+<p>第一种情况就是子进程变成僵尸进程，父进程调用wait给子进程收尸，送他最后一程。</p>
+<p>第二种情况，父进程会阻塞住，等待任意一个子进程退出就会返回(因为wait调用并没有pid相关的入参，所以它并不知道具体要等待哪一个子进程)。</p>
+<p>wait方法的局限性：</p>
+<ol>
+<li>不能等待特定的子进程，只能通过返回值判断是否是关心的子进程。</li>
+<li>如果不存在子进程退出，wait只能阻塞，如果我们只是想获取退出子进程的退出状态的话，是不行的。</li>
+<li>wait只能发现子进程的终止事件，如果子进程因某信号停止，或因为某信号从停止恢复，wait无法探知。</li>
+</ol>
+<h2 id="等待子进程退出之waitpid"><a href="#等待子进程退出之waitpid" class="headerlink" title="等待子进程退出之waitpid"></a>等待子进程退出之waitpid</h2> 
       <!-- reward -->
       
     </div>
